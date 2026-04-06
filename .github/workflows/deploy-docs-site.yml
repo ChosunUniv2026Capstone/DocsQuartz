@@ -1,0 +1,120 @@
+name: Deploy docs site
+
+on:
+  repository_dispatch:
+    types:
+      - docs-updated
+  workflow_dispatch:
+    inputs:
+      docs_ref:
+        description: "docs ref to publish (default: main or dispatched SHA)"
+        required: false
+        type: string
+      docs_repository:
+        description: "docs repository to publish"
+        required: false
+        default: "ChosunUniv2026Capstone/docs"
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs-site-production
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DOCS_SOURCE_REPOSITORY: ${{ github.event.client_payload.source_repository || inputs.docs_repository || 'ChosunUniv2026Capstone/docs' }}
+      DOCS_SOURCE_REF: ${{ github.event.client_payload.source_sha || github.event.client_payload.source_branch || inputs.docs_ref || 'main' }}
+    steps:
+      - name: Checkout DocsQuartz
+        uses: actions/checkout@v5
+
+      - name: Validate docs read token
+        env:
+          DOCS_REPO_READ_TOKEN: ${{ secrets.DOCS_REPO_READ_TOKEN }}
+        run: |
+          if [ -z "$DOCS_REPO_READ_TOKEN" ]; then
+            echo "Missing required secret: DOCS_REPO_READ_TOKEN" >&2
+            echo "Create a read-only token that can checkout ${DOCS_SOURCE_REPOSITORY}." >&2
+            exit 1
+          fi
+
+      - name: Checkout source docs repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.DOCS_SOURCE_REPOSITORY }}
+          ref: ${{ env.DOCS_SOURCE_REF }}
+          token: ${{ secrets.DOCS_REPO_READ_TOKEN }}
+          path: external-docs
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Populate Quartz content from docs
+        run: |
+          rm -rf content
+          mkdir -p content
+
+          sections=(
+            "00-overview"
+            "01-requirements"
+            "02-decisions"
+            "03-conventions"
+            "04-architecture"
+            "05-work-items"
+            "06-meetings"
+            "07-status"
+          )
+
+          for section in "${sections[@]}"; do
+            if [ -d "external-docs/${section}" ]; then
+              mkdir -p "content/${section}"
+              rsync -a "external-docs/${section}/" "content/${section}/"
+            fi
+          done
+
+          find external-docs -maxdepth 1 -type f -name '*.md' ! -name 'AGENTS.md' -exec cp {} content/ \;
+
+      - name: Build Quartz site
+        run: npx quartz build -d content
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+      - name: Write build summary
+        run: |
+          {
+            echo "## Docs site build inputs"
+            echo
+            echo "- Docs repository: \`${DOCS_SOURCE_REPOSITORY}\`"
+            echo "- Docs ref: \`${DOCS_SOURCE_REF}\`"
+            echo "- Trigger: \`${{ github.event_name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
