@@ -79,6 +79,7 @@ jobs:
             "05-work-items"
             "06-meetings"
             "07-status"
+            "08-reports"
           )
 
           for section in "${sections[@]}"; do
