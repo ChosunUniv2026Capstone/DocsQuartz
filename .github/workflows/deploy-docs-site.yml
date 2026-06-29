@@ -33,7 +33,7 @@ jobs:
       DOCS_SOURCE_REF: ${{ github.event.client_payload.source_sha || github.event.client_payload.source_branch || inputs.docs_ref || 'main' }}
     steps:
       - name: Checkout DocsQuartz
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Validate docs read token
         env:
@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Checkout source docs repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.DOCS_SOURCE_REPOSITORY }}
           ref: ${{ env.DOCS_SOURCE_REF }}
